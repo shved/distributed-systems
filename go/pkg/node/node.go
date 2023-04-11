@@ -10,6 +10,11 @@ import (
 	"github.com/shved/distributed-systems/go/pkg/nodeerr"
 )
 
+const (
+	Init = "init"
+	Echo = "echo"
+)
+
 // Besides few fields Message body could be anything.
 type Body map[string]any
 
@@ -19,24 +24,37 @@ type Message struct {
 	Body Body   `json:"body,omitempty"`
 }
 
+type HandlerFunc func(msg Message) Message
+
 type Node struct {
-	id     string
-	msgID  uint64
-	log    *log.Logger
-	output *log.Logger
+	id    string
+	msgID uint64
+
+	log      *log.Logger
+	output   *log.Logger
+	handlers map[string]HandlerFunc
 }
 
 func NewNode() *Node {
 	return &Node{
-		log:    log.New(os.Stderr, "", 0),
-		output: log.New(os.Stdout, "", 0),
+		log:      log.New(os.Stderr, "", 0),
+		output:   log.New(os.Stdout, "", 0),
+		handlers: map[string]HandlerFunc{},
 	}
+}
+
+func (n *Node) RegisterHandler(method string, fn HandlerFunc) {
+	n.handlers[method] = fn
 }
 
 func (n *Node) setID(id string) {
 	if n.id == "" {
 		n.id = id
 	}
+}
+
+func (n *Node) MsgID() uint64 {
+	return n.msgID
 }
 
 func (n *Node) incMsgID() {
@@ -66,21 +84,28 @@ func (n *Node) SpawnHandler(input string, readErr error) {
 			return
 		}
 
-		switch message.Body["type"] {
-		case "init":
-			resp := n.handleInit(message)
+		msgType := message.Body["type"].(string)
+
+		if msgType == Init {
+			resp := n.init(message)
 			n.send(resp)
-		case "echo":
-			resp := n.handleEcho(message)
-			n.send(resp)
-		default:
+			return
+		}
+
+		handler, ok := n.handlers[msgType]
+		if !ok {
 			resp := renderError(n.id, message.Src, message.Body["msg_id"].(float64), nodeerr.NotSupported)
 			n.send(resp)
+			return
 		}
+
+		n.incMsgID()
+		resp := handler(message)
+		n.send(resp)
 	}(input, readErr)
 }
 
-func (n *Node) handleEcho(in Message) Message {
+func (n *Node) echo(in Message) Message {
 	n.incMsgID()
 
 	return Message{
@@ -95,7 +120,7 @@ func (n *Node) handleEcho(in Message) Message {
 	}
 }
 
-func (n *Node) handleInit(in Message) Message {
+func (n *Node) init(in Message) Message {
 	n.setID(in.Body["node_id"].(string))
 	n.incMsgID()
 
@@ -123,7 +148,7 @@ func parseMessage(input string) (Message, error) {
 		return Message{}, errors.New("invalid json")
 	}
 
-	// TODO Leginimately validate message here before pass it further.
+	// TODO Legitimately validate message here before pass it further.
 
 	return msg, nil
 }
