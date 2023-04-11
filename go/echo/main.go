@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"os"
+	"sync/atomic"
 )
 
 type ErrorCode int
@@ -25,127 +26,19 @@ const (
 )
 
 // Besides few fields Message body could be anything.
-type RawMessage map[string]any
+type Body map[string]any
 
 type Message struct {
-	Src  string     `json:"src"`
-	Dest string     `json:"dest"`
-	Body RawMessage `json:"body"`
-}
-
-type ErrorMessage struct {
-	Src  string    `json:"src"`
-	Dest string    `json:"dest"`
-	Body ErrorBody `json:"body"`
-}
-
-type ErrorBody struct {
-	Type      string    `json:"type"`
-	InReplyTo float64   `json:"in_reply_to"`
-	Code      ErrorCode `json:"code"`
-	Text      string    `json:"text"`
+	Src  string `json:"src,omitempty"`
+	Dest string `json:"dest,omitempty"`
+	Body Body   `json:"body,omitempty"`
 }
 
 type Node struct {
-	id       string
-	msgIDSeq int
-	log      *log.Logger
-	output   *log.Logger
-}
-
-func (n *Node) setID(id string) {
-	if n.id != "" {
-		return
-	}
-
-	n.id = id
-}
-
-func (n *Node) spawnHandler(input string, readErr error) {
-	go func(input string, readErr error) {
-		n.log.Println("Received", input)
-
-		if readErr != nil {
-			resp := renderError("", "", 0, Malformed)
-			n.send(resp)
-			return
-		}
-
-		message, err := parseMessage(input)
-		if err != nil {
-			resp := renderError("", "", 0, Malformed)
-			n.send(resp)
-			return
-		}
-
-		switch message.Body["type"] {
-		case "init":
-			resp := n.handleInit(message)
-			n.send(resp)
-		case "echo":
-			if message.Dest != n.id {
-				resp := renderError(n.id, message.Src, message.Body["msg_id"].(float64), NodeNotFound)
-				n.send(resp)
-				return
-			}
-
-			resp := n.handleEcho(message)
-			n.send(resp)
-		default:
-			resp := renderError(n.id, message.Src, message.Body["msg_id"].(float64), NotSupported)
-			n.send(resp)
-		}
-	}(input, readErr)
-}
-
-func renderError(from, to string, inReply float64, code ErrorCode) ErrorMessage {
-	return ErrorMessage{
-		Src:  from,
-		Dest: to,
-		Body: ErrorBody{
-			Type:      "error",
-			InReplyTo: inReply,
-			Code:      code,
-			Text:      code.String(),
-		},
-	}
-}
-
-func (n *Node) handleEcho(in Message) Message {
-	n.msgIDSeq += 1
-
-	return Message{
-		Src:  in.Dest,
-		Dest: in.Src,
-		Body: RawMessage{
-			"type":        "echo_ok",
-			"msg_id":      n.msgIDSeq,
-			"in_reply_to": in.Body["msg_id"].(float64),
-			"echo":        in.Body["echo"],
-		},
-	}
-}
-
-func (n *Node) handleInit(in Message) Message {
-	n.setID(in.Body["node_id"].(string))
-	n.msgIDSeq += 1
-
-	return Message{
-		Src:  in.Dest,
-		Dest: in.Src,
-		Body: RawMessage{
-			"type":        "init_ok",
-			"msg_id":      n.msgIDSeq,
-			"in_reply_to": in.Body["msg_id"].(float64),
-		},
-	}
-}
-
-func (n *Node) send(message any) {
-	// TODO Could be some premarshaled error stub added to send. Just to not skip the error here.
-	resp, _ := json.Marshal(message)
-	n.output.Println(string(resp))
-	n.log.Printf("Sent %#v\n", message)
+	id     string
+	msgID  uint64
+	log    *log.Logger
+	output *log.Logger
 }
 
 func main() {
@@ -162,13 +55,110 @@ func main() {
 	}
 }
 
+func (n *Node) setID(id string) {
+	if n.id == "" {
+		n.id = id
+	}
+}
+
+func (n *Node) incMsgID() {
+	atomic.AddUint64(&n.msgID, 1)
+}
+
+func (n *Node) spawnHandler(input string, readErr error) {
+	go func(input string, readErr error) {
+		n.log.Printf("Received %s", input)
+
+		if readErr != nil {
+			resp := renderError("", "", 0, Malformed)
+			n.send(resp)
+			return
+		}
+
+		message, err := parseMessage(input)
+		if err != nil {
+			resp := renderError("", "", 0, Malformed)
+			n.send(resp)
+			return
+		}
+
+		if n.id != "" && message.Dest != n.id {
+			resp := renderError(n.id, message.Src, message.Body["msg_id"].(float64), NodeNotFound)
+			n.send(resp)
+			return
+		}
+
+		switch message.Body["type"] {
+		case "init":
+			resp := n.handleInit(message)
+			n.send(resp)
+		case "echo":
+			resp := n.handleEcho(message)
+			n.send(resp)
+		default:
+			resp := renderError(n.id, message.Src, message.Body["msg_id"].(float64), NotSupported)
+			n.send(resp)
+		}
+	}(input, readErr)
+}
+
+func renderError(from, to string, inReply float64, code ErrorCode) Message {
+	return Message{
+		Src:  from,
+		Dest: to,
+		Body: Body{
+			"type":        "error",
+			"in_reply_to": inReply,
+			"code":        code,
+			"text":        code.String(),
+		},
+	}
+}
+
+func (n *Node) handleEcho(in Message) Message {
+	n.incMsgID()
+
+	return Message{
+		Src:  in.Dest,
+		Dest: in.Src,
+		Body: Body{
+			"type":        "echo_ok",
+			"msg_id":      n.msgID,
+			"in_reply_to": in.Body["msg_id"].(float64),
+			"echo":        in.Body["echo"],
+		},
+	}
+}
+
+func (n *Node) handleInit(in Message) Message {
+	n.setID(in.Body["node_id"].(string))
+	n.incMsgID()
+
+	return Message{
+		Src:  in.Dest,
+		Dest: in.Src,
+		Body: Body{
+			"type":        "init_ok",
+			"msg_id":      n.msgID,
+			"in_reply_to": in.Body["msg_id"].(float64),
+		},
+	}
+}
+
+func (n *Node) send(message any) {
+	// TODO Could be some premarshaled error stub added to send. Just to not skip the error here.
+	resp, _ := json.Marshal(message)
+	n.output.Println(string(resp))
+	n.log.Printf("Sent %#v\n", message)
+}
+
 func parseMessage(input string) (Message, error) {
 	var msg Message
 	if err := json.Unmarshal([]byte(input), &msg); err != nil {
 		return Message{}, errors.New("invalid json")
 	}
 
-	// TODO Leginimately validate message here before pass it further (including client and node ids fromat).
+	// TODO Leginimately validate message here before pass it further.
 
 	return msg, nil
 }
