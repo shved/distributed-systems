@@ -1,28 +1,13 @@
-package main
+package node
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"log"
 	"os"
 	"sync/atomic"
-)
 
-type ErrorCode int
-
-const (
-	Timeout            ErrorCode = 0  // "Timed out"
-	NodeNotFound       ErrorCode = 1  // "Node not found"
-	NotSupported       ErrorCode = 10 // "Operation not supported"
-	Unavailable        ErrorCode = 11 // "Temporary unavailable"
-	Malformed          ErrorCode = 12 // "Malformed request"
-	Crashed            ErrorCode = 13 // "Crashed"
-	Aborted            ErrorCode = 14 // "Aborted"
-	KeyNotExist        ErrorCode = 20 // "Key does not exist"
-	KeyAlreadyExist    ErrorCode = 21 // "Key already exist"
-	PreconditionFailed ErrorCode = 22 // "Precondition failed"
-	TXConflict         ErrorCode = 30 // "Transaction conflict"
+	"github.com/shved/distributed-systems/go/pkg/nodeerr"
 )
 
 // Besides few fields Message body could be anything.
@@ -41,17 +26,10 @@ type Node struct {
 	output *log.Logger
 }
 
-func main() {
-	node := Node{
+func NewNode() *Node {
+	return &Node{
 		log:    log.New(os.Stderr, "", 0),
 		output: log.New(os.Stdout, "", 0),
-	}
-
-	reader := bufio.NewReader(os.Stdin)
-
-	for {
-		input, err := reader.ReadString('\n')
-		node.spawnHandler(input, err)
 	}
 }
 
@@ -65,25 +43,25 @@ func (n *Node) incMsgID() {
 	atomic.AddUint64(&n.msgID, 1)
 }
 
-func (n *Node) spawnHandler(input string, readErr error) {
+func (n *Node) SpawnHandler(input string, readErr error) {
 	go func(input string, readErr error) {
 		n.log.Printf("Received %s", input)
 
 		if readErr != nil {
-			resp := renderError("", "", 0, Malformed)
+			resp := renderError("", "", 0, nodeerr.Malformed)
 			n.send(resp)
 			return
 		}
 
 		message, err := parseMessage(input)
 		if err != nil {
-			resp := renderError("", "", 0, Malformed)
+			resp := renderError("", "", 0, nodeerr.Malformed)
 			n.send(resp)
 			return
 		}
 
 		if n.id != "" && message.Dest != n.id {
-			resp := renderError(n.id, message.Src, message.Body["msg_id"].(float64), NodeNotFound)
+			resp := renderError(n.id, message.Src, message.Body["msg_id"].(float64), nodeerr.NodeNotFound)
 			n.send(resp)
 			return
 		}
@@ -96,23 +74,10 @@ func (n *Node) spawnHandler(input string, readErr error) {
 			resp := n.handleEcho(message)
 			n.send(resp)
 		default:
-			resp := renderError(n.id, message.Src, message.Body["msg_id"].(float64), NotSupported)
+			resp := renderError(n.id, message.Src, message.Body["msg_id"].(float64), nodeerr.NotSupported)
 			n.send(resp)
 		}
 	}(input, readErr)
-}
-
-func renderError(from, to string, inReply float64, code ErrorCode) Message {
-	return Message{
-		Src:  from,
-		Dest: to,
-		Body: Body{
-			"type":        "error",
-			"in_reply_to": inReply,
-			"code":        code,
-			"text":        code.String(),
-		},
-	}
 }
 
 func (n *Node) handleEcho(in Message) Message {
@@ -163,31 +128,15 @@ func parseMessage(input string) (Message, error) {
 	return msg, nil
 }
 
-func (e ErrorCode) String() string {
-	switch e {
-	case Timeout:
-		return "Timed out"
-	case NodeNotFound:
-		return "Node not found"
-	case NotSupported:
-		return "Operation not supported"
-	case Unavailable:
-		return "Temporary unavailable"
-	case Malformed:
-		return "Malformed request"
-	case Crashed:
-		return "Crashed"
-	case Aborted:
-		return "Aborted"
-	case KeyNotExist:
-		return "Key does not exist"
-	case KeyAlreadyExist:
-		return "Key already exist"
-	case PreconditionFailed:
-		return "Precondition failed"
-	case TXConflict:
-		return "Transaction conflict"
-	default:
-		panic("unreachable")
+func renderError(from, to string, inReply float64, code nodeerr.ErrorCode) Message {
+	return Message{
+		Src:  from,
+		Dest: to,
+		Body: Body{
+			"type":        "error",
+			"in_reply_to": inReply,
+			"code":        code,
+			"text":        code.String(),
+		},
 	}
 }

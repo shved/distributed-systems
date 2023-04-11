@@ -13,8 +13,7 @@ struct Message {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Body {
-    #[serde(rename = "msg_id")]
-    id: Option<usize>,
+    msg_id: Option<usize>,
     in_reply_to: Option<usize>,
     #[serde(flatten)]
     payload: Payload,
@@ -26,10 +25,13 @@ struct Body {
 enum Payload {
     Echo { echo: String },
     EchoOk { echo: String },
+    Init { node_id: String },
+    InitOk,
 }
 
 struct EchoNode {
-    id: usize,
+    id: String,
+    msg_id_seq: usize,
 }
 
 impl EchoNode {
@@ -60,9 +62,12 @@ impl EchoNode {
 
 fn main() -> anyhow::Result<()> {
     let stdin = std::io::stdin().lock();
-    let stdout = std::io::stdout().lock();
-
     let inputs = serde_json::Deserializer::from_reader(stdin).into_iter::<Message>();
+
+    let stdout = std::io::stdout().lock();
+    let output = serde_json::Serializer::new(stdout);
+
+    let state = EchoNode {};
 
     for input in inputs {
         let input = input.context("input could not be deserialized")?;
