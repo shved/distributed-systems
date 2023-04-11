@@ -33,6 +33,7 @@ type Node struct {
 	log      *log.Logger
 	output   *log.Logger
 	handlers map[string]HandlerFunc
+	pool     chan struct{}
 }
 
 func NewNode() *Node {
@@ -40,6 +41,7 @@ func NewNode() *Node {
 		log:      log.New(os.Stderr, "", 0),
 		output:   log.New(os.Stdout, "", 0),
 		handlers: map[string]HandlerFunc{},
+		pool:     make(chan struct{}, 100),
 	}
 }
 
@@ -62,7 +64,13 @@ func (n *Node) incMsgID() {
 }
 
 func (n *Node) SpawnHandler(input string, readErr error) {
+	n.pool <- struct{}{}
+
 	go func(input string, readErr error) {
+		defer func() {
+			<-n.pool
+		}()
+
 		n.log.Printf("Received %s", input)
 
 		if readErr != nil {
