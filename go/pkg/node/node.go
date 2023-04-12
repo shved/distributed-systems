@@ -3,6 +3,7 @@ package node
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"sync/atomic"
@@ -46,6 +47,10 @@ func NewNode() *Node {
 }
 
 func (n *Node) RegisterHandler(method string, fn HandlerFunc) {
+	if _, ok := n.handlers[method]; ok {
+		panic(fmt.Sprintf("handler for '%s' action defined twice", method))
+	}
+
 	n.handlers[method] = fn
 }
 
