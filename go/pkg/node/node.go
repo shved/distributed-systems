@@ -11,11 +11,6 @@ import (
 	"github.com/shved/distributed-systems/go/pkg/nodeerr"
 )
 
-const (
-	Init = "init"
-	Echo = "echo"
-)
-
 // Besides few fields Message body could be anything.
 type Body map[string]any
 
@@ -42,7 +37,7 @@ func NewNode() *Node {
 		log:      log.New(os.Stderr, "", 0),
 		output:   log.New(os.Stdout, "", 0),
 		handlers: map[string]HandlerFunc{},
-		pool:     make(chan struct{}, 100),
+		pool:     make(chan struct{}, 200),
 	}
 }
 
@@ -99,7 +94,7 @@ func (n *Node) SpawnHandler(input string, readErr error) {
 
 		msgType := message.Body["type"].(string)
 
-		if msgType == Init {
+		if msgType == "init" {
 			resp := n.init(message)
 			n.send(resp)
 			return

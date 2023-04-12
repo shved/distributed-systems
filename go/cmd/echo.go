@@ -9,7 +9,7 @@ import (
 
 func main() {
 	n := node.NewNode()
-	n.RegisterHandler(node.Echo, func(msg node.Message) node.Message {
+	n.RegisterHandler("echo", func(msg node.Message) node.Message {
 		return node.Message{
 			Src:  msg.Dest,
 			Dest: msg.Src,
