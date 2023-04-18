@@ -20,25 +20,50 @@ type Message struct {
 	Body Body   `json:"body,omitempty"`
 }
 
-type HandlerFunc func(msg Message) Message
+type HandlerFunc func(msg Message, msgID uint64) Message
 
 type Node struct {
-	id    string
-	msgID uint64
+	nodeID string
+	msgID  uint64
+	nodes  []string
 
 	log      *log.Logger
 	output   *log.Logger
 	handlers map[string]HandlerFunc
 	pool     chan struct{}
+
+	// To use for a specific calls needs.
+	ExtraState any
 }
 
-func NewNode() *Node {
-	return &Node{
-		log:      log.New(os.Stderr, "", 0),
-		output:   log.New(os.Stdout, "", 0),
-		handlers: map[string]HandlerFunc{},
-		pool:     make(chan struct{}, 200),
+func NewNode(nodeID string, msgID uint64) *Node {
+	n := &Node{
+		nodeID:     nodeID,
+		msgID:      msgID,
+		nodes:      []string{},
+		log:        log.New(os.Stderr, "", 0),
+		output:     log.New(os.Stdout, "", 0),
+		handlers:   map[string]HandlerFunc{},
+		pool:       make(chan struct{}, 200),
+		ExtraState: make(map[string]any),
 	}
+
+	n.RegisterHandler("init", func(msg Message, msgID uint64) Message {
+		n.setID(msg.Body["node_id"].(string))
+		// TODO n.setNodes()
+
+		return Message{
+			Src:  msg.Dest,
+			Dest: msg.Src,
+			Body: Body{
+				"type":        "init_ok",
+				"msg_id":      msgID,
+				"in_reply_to": msg.Body["msg_id"].(float64),
+			},
+		}
+	})
+
+	return n
 }
 
 func (n *Node) RegisterHandler(method string, fn HandlerFunc) {
@@ -50,17 +75,21 @@ func (n *Node) RegisterHandler(method string, fn HandlerFunc) {
 }
 
 func (n *Node) setID(id string) {
-	if n.id == "" {
-		n.id = id
+	if n.nodeID == "" {
+		n.nodeID = id
 	}
 }
 
-func (n *Node) MsgID() uint64 {
-	return n.msgID
+func (n *Node) NodeID() string {
+	return n.nodeID
 }
 
-func (n *Node) incMsgID() {
-	atomic.AddUint64(&n.msgID, 1)
+func (n *Node) setNodes(nodes []string) {
+	n.nodes = nodes
+}
+
+func (n *Node) incMsgID() uint64 {
+	return atomic.AddUint64(&n.msgID, 1)
 }
 
 func (n *Node) SpawnHandler(input string, readErr error) {
@@ -86,61 +115,24 @@ func (n *Node) SpawnHandler(input string, readErr error) {
 			return
 		}
 
-		if n.id != "" && message.Dest != n.id {
-			resp := renderError(n.id, message.Src, message.Body["msg_id"].(float64), nodeerr.NodeNotFound)
+		if n.nodeID != "" && message.Dest != n.nodeID {
+			resp := renderError(n.nodeID, message.Src, message.Body["msg_id"].(float64), nodeerr.NodeNotFound)
 			n.send(resp)
 			return
 		}
 
 		msgType := message.Body["type"].(string)
-
-		if msgType == "init" {
-			resp := n.init(message)
-			n.send(resp)
-			return
-		}
-
 		handler, ok := n.handlers[msgType]
 		if !ok {
-			resp := renderError(n.id, message.Src, message.Body["msg_id"].(float64), nodeerr.NotSupported)
+			resp := renderError(n.nodeID, message.Src, message.Body["msg_id"].(float64), nodeerr.NotSupported)
 			n.send(resp)
 			return
 		}
 
-		n.incMsgID()
-		resp := handler(message)
+		newMsgID := n.incMsgID()
+		resp := handler(message, newMsgID)
 		n.send(resp)
 	}(input, readErr)
-}
-
-func (n *Node) echo(in Message) Message {
-	n.incMsgID()
-
-	return Message{
-		Src:  in.Dest,
-		Dest: in.Src,
-		Body: Body{
-			"type":        "echo_ok",
-			"msg_id":      n.msgID,
-			"in_reply_to": in.Body["msg_id"].(float64),
-			"echo":        in.Body["echo"],
-		},
-	}
-}
-
-func (n *Node) init(in Message) Message {
-	n.setID(in.Body["node_id"].(string))
-	n.incMsgID()
-
-	return Message{
-		Src:  in.Dest,
-		Dest: in.Src,
-		Body: Body{
-			"type":        "init_ok",
-			"msg_id":      n.msgID,
-			"in_reply_to": in.Body["msg_id"].(float64),
-		},
-	}
 }
 
 func (n *Node) send(message any) {

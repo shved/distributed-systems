@@ -2,22 +2,24 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 
 	"github.com/shved/distributed-systems/go/pkg/node"
 )
 
 func main() {
-	n := node.NewNode()
-	n.RegisterHandler("echo", func(msg node.Message) node.Message {
+	n := node.NewNode("", 0)
+
+	n.RegisterHandler("generate", func(msg node.Message, msgID uint64) node.Message {
 		return node.Message{
 			Src:  msg.Dest,
 			Dest: msg.Src,
 			Body: node.Body{
-				"type":        "echo_ok",
-				"msg_id":      n.MsgID(),
+				"type":        "generate_ok",
+				"msg_id":      msgID,
 				"in_reply_to": msg.Body["msg_id"].(float64),
-				"echo":        msg.Body["echo"],
+				"id":          fmt.Sprintf("%s-%d", n.NodeID(), msgID),
 			},
 		}
 	})
