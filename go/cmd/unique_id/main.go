@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 
@@ -24,10 +23,5 @@ func main() {
 		}
 	})
 
-	reader := bufio.NewReader(os.Stdin)
-
-	for {
-		input, err := reader.ReadString('\n')
-		n.SpawnHandler(input, err)
-	}
+	n.ListenAndServe(os.Stdin)
 }

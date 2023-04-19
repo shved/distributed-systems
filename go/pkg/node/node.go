@@ -1,6 +1,7 @@
 package node
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -74,22 +75,13 @@ func (n *Node) RegisterHandler(method string, fn HandlerFunc) {
 	n.handlers[method] = fn
 }
 
-func (n *Node) setID(id string) {
-	if n.nodeID == "" {
-		n.nodeID = id
+func (n *Node) ListenAndServe(input *os.File) {
+	reader := bufio.NewReader(os.Stdin)
+
+	for {
+		input, err := reader.ReadString('\n')
+		n.SpawnHandler(input, err)
 	}
-}
-
-func (n *Node) NodeID() string {
-	return n.nodeID
-}
-
-func (n *Node) setNodes(nodes []string) {
-	n.nodes = nodes
-}
-
-func (n *Node) incMsgID() uint64 {
-	return atomic.AddUint64(&n.msgID, 1)
 }
 
 func (n *Node) SpawnHandler(input string, readErr error) {
@@ -133,6 +125,24 @@ func (n *Node) SpawnHandler(input string, readErr error) {
 		resp := handler(message, newMsgID)
 		n.send(resp)
 	}(input, readErr)
+}
+
+func (n *Node) setID(id string) {
+	if n.nodeID == "" {
+		n.nodeID = id
+	}
+}
+
+func (n *Node) NodeID() string {
+	return n.nodeID
+}
+
+func (n *Node) setNodes(nodes []string) {
+	n.nodes = nodes
+}
+
+func (n *Node) incMsgID() uint64 {
+	return atomic.AddUint64(&n.msgID, 1)
 }
 
 func (n *Node) send(message any) {
