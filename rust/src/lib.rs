@@ -1,20 +1,17 @@
-use std::io::{BufRead, StdoutLock, Write};
-
 use anyhow::Context;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::io::{BufRead, StdoutLock, Write};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message<Payload> {
     pub src: String,
-    #[serde(rename = "dest")]
-    pub dst: String,
+    pub dest: String,
     pub body: Body<Payload>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Body<Payload> {
-    #[serde(rename = "msg_id")]
-    pub id: Option<usize>,
+    pub msg_id: Option<usize>,
     pub in_reply_to: Option<usize>,
     #[serde(flatten)]
     pub payload: Payload,
@@ -68,11 +65,11 @@ where
     let mut node: N = Node::from_init(init_state, init).context("node initilization failed")?;
 
     let reply = Message {
-        src: init_msg.dst,
-        dst: init_msg.src,
+        src: init_msg.dest,
+        dest: init_msg.src,
         body: Body {
-            id: Some(0),
-            in_reply_to: init_msg.body.id,
+            msg_id: Some(0),
+            in_reply_to: init_msg.body.msg_id,
             payload: InitPayload::InitOk,
         },
     };
