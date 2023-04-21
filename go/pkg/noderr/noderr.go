@@ -1,4 +1,4 @@
-package nodeerr
+package noderr
 
 type ErrorCode int
 

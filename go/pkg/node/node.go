@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"sync/atomic"
 
-	"github.com/shved/distributed-systems/go/pkg/nodeerr"
+	"github.com/shved/distributed-systems/go/pkg/noderr"
 )
 
 // Besides few fields Message body could be anything.
@@ -29,24 +30,20 @@ type Node struct {
 	nodes  []string
 
 	log      *log.Logger
-	output   *log.Logger
+	output   io.Writer
 	handlers map[string]HandlerFunc
 	pool     chan struct{}
-
-	// To use for a specific calls needs.
-	ExtraState any
 }
 
 func NewNode(nodeID string, msgID uint64) *Node {
 	n := &Node{
-		nodeID:     nodeID,
-		msgID:      msgID,
-		nodes:      []string{},
-		log:        log.New(os.Stderr, "", 0),
-		output:     log.New(os.Stdout, "", 0),
-		handlers:   map[string]HandlerFunc{},
-		pool:       make(chan struct{}, 200),
-		ExtraState: make(map[string]any),
+		nodeID:   nodeID,
+		msgID:    msgID,
+		nodes:    []string{},
+		log:      log.New(os.Stderr, "", 0),
+		output:   log.New(os.Stdout, "", 0).Writer(),
+		handlers: map[string]HandlerFunc{},
+		pool:     make(chan struct{}, 200),
 	}
 
 	n.RegisterHandler("init", func(msg Message, msgID uint64) Message {
@@ -95,20 +92,20 @@ func (n *Node) SpawnHandler(input string, readErr error) {
 		n.log.Printf("Received %s", input)
 
 		if readErr != nil {
-			resp := renderError("", "", 0, nodeerr.Malformed)
+			resp := renderError("", "", 0, noderr.Malformed)
 			n.send(resp)
 			return
 		}
 
 		message, err := parseMessage(input)
 		if err != nil {
-			resp := renderError("", "", 0, nodeerr.Malformed)
+			resp := renderError("", "", 0, noderr.Malformed)
 			n.send(resp)
 			return
 		}
 
 		if n.nodeID != "" && message.Dest != n.nodeID {
-			resp := renderError(n.nodeID, message.Src, message.Body["msg_id"].(float64), nodeerr.NodeNotFound)
+			resp := renderError(n.nodeID, message.Src, message.Body["msg_id"].(float64), noderr.NodeNotFound)
 			n.send(resp)
 			return
 		}
@@ -116,7 +113,7 @@ func (n *Node) SpawnHandler(input string, readErr error) {
 		msgType := message.Body["type"].(string)
 		handler, ok := n.handlers[msgType]
 		if !ok {
-			resp := renderError(n.nodeID, message.Src, message.Body["msg_id"].(float64), nodeerr.NotSupported)
+			resp := renderError(n.nodeID, message.Src, message.Body["msg_id"].(float64), noderr.NotSupported)
 			n.send(resp)
 			return
 		}
@@ -148,7 +145,8 @@ func (n *Node) incMsgID() uint64 {
 func (n *Node) send(message any) {
 	// TODO Could be some premarshaled error stub added to send. Just to not skip the error here.
 	resp, _ := json.Marshal(message)
-	n.output.Println(string(resp))
+	resp = append(resp, '\n')
+	n.output.Write(resp)
 	n.log.Printf("Sent %#v\n", message)
 }
 
@@ -163,7 +161,7 @@ func parseMessage(input string) (Message, error) {
 	return msg, nil
 }
 
-func renderError(from, to string, inReply float64, code nodeerr.ErrorCode) Message {
+func renderError(from, to string, inReply float64, code noderr.ErrorCode) Message {
 	return Message{
 		Src:  from,
 		Dest: to,
