@@ -5,3 +5,6 @@ build.echo:
 
 build.unique_id:
 	go build -o bin/unique_id cmd/unique_id/main.go
+
+say:
+	echo "Hi!"
