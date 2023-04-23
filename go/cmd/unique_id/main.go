@@ -5,34 +5,35 @@ import (
 	"os"
 
 	"github.com/shved/distributed-systems/go/pkg/node"
+	"github.com/shved/distributed-systems/go/pkg/noderr"
 )
 
 type GenerateBody struct {
-	Type  string  `json:"type"`
-	MsgID float64 `json:"msg_id"`
+	Type  string  `json:"type,omitempty"`
+	MsgID float64 `json:"msg_id,omitempty"`
 }
 
 type GenerateOkBody struct {
-	Type      string  `json:"type"`
-	MsgID     uint64  `json:"msg_id"`
-	InReplyTo float64 `json:"in_reply_to"`
-	ID        string  `json:"id"`
+	Type      string  `json:"type,omitempty"`
+	MsgID     uint64  `json:"msg_id,omitempty"`
+	InReplyTo float64 `json:"in_reply_to,omitempty"`
+	ID        string  `json:"id,omitempty"`
 }
 
 func main() {
-	n := node.NewNode("", 0)
+	n := node.New("", 0)
 
 	n.RegisterHandler("generate", func(msg node.Message, msgID uint64) node.Message {
-		var req GenerateBody
+		var body GenerateBody
 
-		if errMsg, err := msg.ExtractBody(&req); err != nil {
-			return errMsg
+		if err := msg.ExtractBody(&body); err != nil {
+			return node.WithErrorBody(msg, 0, noderr.Malformed)
 		}
 
 		return node.WithOkBody(msg, GenerateOkBody{
 			Type:      "generate_ok",
 			MsgID:     msgID,
-			InReplyTo: req.MsgID,
+			InReplyTo: body.MsgID,
 			ID:        fmt.Sprintf("%s-%d", n.NodeID(), msgID),
 		})
 	})

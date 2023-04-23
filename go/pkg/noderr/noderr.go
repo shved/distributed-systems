@@ -3,10 +3,10 @@ package noderr
 type ErrorCode int
 
 type ErrorBody struct {
-	Type      string    `json:"type"`
-	InReplyTo float64   `json:"in_reply_to"` // God only knows why.
-	Code      ErrorCode `json:"code"`
-	Text      string    `json:"text"`
+	Type      string    `json:"type,omitempty"`
+	InReplyTo float64   `json:"in_reply_to,omitempty"` // God only knows why.
+	Code      ErrorCode `json:"code,omitempty"`
+	Text      string    `json:"text,omitempty"`
 }
 
 const (

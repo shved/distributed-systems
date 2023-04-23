@@ -21,22 +21,22 @@ type Message struct {
 
 type MsgProbe struct {
 	Body struct {
-		Type  string  `json:"type"`
-		MsgID float64 `json:"msg_id"`
-	} `json:"body"`
+		Type  string  `json:"type,omitempy"`
+		MsgID float64 `json:"msg_id,omitempy"`
+	} `json:"body,omitempy"`
 }
 
 type InitBody struct {
-	Type    string   `json:"type"`
-	MsgID   uint64   `json:"msg_id"`
-	NodeID  string   `json:"node_id"`
-	NodeIDs []string `json:"node_ids"`
+	Type    string   `json:"type,omitempy"`
+	MsgID   uint64   `json:"msg_id,omitempy"`
+	NodeID  string   `json:"node_id,omitempy"`
+	NodeIDs []string `json:"node_ids,omitempy"`
 }
 
 type InitOkBody struct {
-	Type      string `json:"type"`
-	MsgID     uint64 `json:"msg_id"`
-	InReplyTo uint64 `json:"in_reply_to"`
+	Type      string `json:"type,omitempy"`
+	MsgID     uint64 `json:"msg_id,omitempy"`
+	InReplyTo uint64 `json:"in_reply_to,omitempy"`
 }
 
 type HandlerFunc func(msg Message, msgID uint64) Message
@@ -52,7 +52,7 @@ type Node struct {
 	pool     chan struct{}
 }
 
-func NewNode(nodeID string, msgID uint64) *Node {
+func New(nodeID string, msgID uint64) *Node {
 	n := &Node{
 		nodeID:   nodeID,
 		msgID:    msgID,
@@ -64,19 +64,19 @@ func NewNode(nodeID string, msgID uint64) *Node {
 	}
 
 	n.RegisterHandler("init", func(msg Message, msgID uint64) Message {
-		var req InitBody
+		var body InitBody
 
-		if errMsg, err := msg.ExtractBody(&req); err != nil {
-			return errMsg
+		if err := msg.ExtractBody(&body); err != nil {
+			return WithErrorBody(msg, 0, noderr.Malformed)
 		}
 
-		n.setID(req.NodeID)
-		n.nodes = req.NodeIDs
+		n.setID(body.NodeID)
+		n.nodes = body.NodeIDs
 
 		return WithOkBody(msg, InitOkBody{
 			Type:      "init_ok",
 			MsgID:     msgID,
-			InReplyTo: req.MsgID,
+			InReplyTo: body.MsgID,
 		})
 	})
 
@@ -112,33 +112,33 @@ func (n *Node) SpawnHandler(input string, readErr error) {
 
 		if readErr != nil {
 			resp := WithErrorBody(Message{}, 0, noderr.Malformed)
-			n.send(resp)
+			n.Send(resp)
 			return
 		}
 
 		message, probe, err := parseMessage(input)
 		if err != nil {
 			resp := WithErrorBody(Message{}, 0, noderr.Malformed)
-			n.send(resp)
+			n.Send(resp)
 			return
 		}
 
 		if n.nodeID != "" && message.Dest != n.nodeID {
 			resp := WithErrorBody(message, 0, noderr.Malformed)
-			n.send(resp)
+			n.Send(resp)
 			return
 		}
 
 		handler, ok := n.handlers[probe.Body.Type]
 		if !ok {
 			resp := WithErrorBody(message, probe.Body.MsgID, noderr.NotSupported)
-			n.send(resp)
+			n.Send(resp)
 			return
 		}
 
 		newMsgID := n.incMsgID()
 		resp := handler(message, newMsgID)
-		n.send(resp)
+		n.Send(resp)
 	}(input, readErr)
 }
 
@@ -152,6 +152,10 @@ func (n *Node) NodeID() string {
 	return n.nodeID
 }
 
+func (n *Node) Nodes() []string {
+	return n.nodes
+}
+
 func (n *Node) setNodes(nodes []string) {
 	n.nodes = nodes
 }
@@ -160,7 +164,7 @@ func (n *Node) incMsgID() uint64 {
 	return atomic.AddUint64(&n.msgID, 1)
 }
 
-func (n *Node) send(message Message) {
+func (n *Node) Send(message Message) {
 	// TODO Could be some premarshaled error stub added to send. Just to not skip the error here.
 	resp, _ := json.Marshal(message)
 	resp = append(resp, '\n')
@@ -182,12 +186,12 @@ func parseMessage(input string) (Message, MsgProbe, error) {
 	return msg, msgProbe, nil
 }
 
-func (m *Message) ExtractBody(body any) (Message, error) {
+func (m *Message) ExtractBody(body any) error {
 	if err := json.Unmarshal(m.Body, body); err != nil {
-		return WithErrorBody(*m, 0, noderr.Malformed), err
+		return err
 	}
 
-	return Message{}, nil
+	return nil
 }
 
 func WithErrorBody(msg Message, inReply float64, code noderr.ErrorCode) Message {
