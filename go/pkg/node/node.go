@@ -13,13 +13,37 @@ import (
 	"github.com/shved/distributed-systems/go/pkg/noderr"
 )
 
-// Besides few fields Message body could be anything.
-type Body map[string]any
-
 type Message struct {
-	Src  string `json:"src,omitempty"`
-	Dest string `json:"dest,omitempty"`
-	Body Body   `json:"body,omitempty"`
+	Src  string          `json:"src,omitempty"`
+	Dest string          `json:"dest,omitempty"`
+	Body json.RawMessage `json:"body,omitempty"`
+}
+
+type MsgProbe struct {
+	Body struct {
+		Type  string  `json:"type"`
+		MsgID float64 `json:"msg_id"`
+	} `json:"body"`
+}
+
+type ErrorBody struct {
+	Type      string           `json:"type"`
+	InReplyTo float64          `json:"in_reply_to"` // God only knows why.
+	Code      noderr.ErrorCode `json:"code"`
+	Text      string           `json:"text"`
+}
+
+type InitBody struct {
+	Type    string   `json:"type"`
+	MsgID   uint64   `json:"msg_id"`
+	NodeID  string   `json:"node_id"`
+	NodeIDs []string `json:"node_ids"`
+}
+
+type InitOkBody struct {
+	Type      string `json:"type"`
+	MsgID     uint64 `json:"msg_id"`
+	InReplyTo uint64 `json:"in_reply_to"`
 }
 
 type HandlerFunc func(msg Message, msgID uint64) Message
@@ -30,7 +54,7 @@ type Node struct {
 	nodes  []string
 
 	log      *log.Logger
-	output   io.Writer
+	output   io.Writer // Should be syncronised.
 	handlers map[string]HandlerFunc
 	pool     chan struct{}
 }
@@ -43,22 +67,24 @@ func NewNode(nodeID string, msgID uint64) *Node {
 		log:      log.New(os.Stderr, "", 0),
 		output:   log.New(os.Stdout, "", 0).Writer(),
 		handlers: map[string]HandlerFunc{},
-		pool:     make(chan struct{}, 200),
+		pool:     make(chan struct{}, 100),
 	}
 
 	n.RegisterHandler("init", func(msg Message, msgID uint64) Message {
-		n.setID(msg.Body["node_id"].(string))
-		// TODO n.setNodes()
+		var req InitBody
 
-		return Message{
-			Src:  msg.Dest,
-			Dest: msg.Src,
-			Body: Body{
-				"type":        "init_ok",
-				"msg_id":      msgID,
-				"in_reply_to": msg.Body["msg_id"].(float64),
-			},
+		if errMsg, err := msg.ExtractBody(&req); err != nil {
+			return errMsg
 		}
+
+		n.setID(req.NodeID)
+		n.nodes = req.NodeIDs
+
+		return WithOkBody(msg, InitOkBody{
+			Type:      "init_ok",
+			MsgID:     msgID,
+			InReplyTo: req.MsgID,
+		})
 	})
 
 	return n
@@ -92,28 +118,27 @@ func (n *Node) SpawnHandler(input string, readErr error) {
 		n.log.Printf("Received %s", input)
 
 		if readErr != nil {
-			resp := renderError("", "", 0, noderr.Malformed)
+			resp := WithErrorBody(Message{}, 0, noderr.Malformed)
 			n.send(resp)
 			return
 		}
 
-		message, err := parseMessage(input)
+		message, probe, err := parseMessage(input)
 		if err != nil {
-			resp := renderError("", "", 0, noderr.Malformed)
+			resp := WithErrorBody(Message{}, 0, noderr.Malformed)
 			n.send(resp)
 			return
 		}
 
 		if n.nodeID != "" && message.Dest != n.nodeID {
-			resp := renderError(n.nodeID, message.Src, message.Body["msg_id"].(float64), noderr.NodeNotFound)
+			resp := WithErrorBody(message, 0, noderr.Malformed)
 			n.send(resp)
 			return
 		}
 
-		msgType := message.Body["type"].(string)
-		handler, ok := n.handlers[msgType]
+		handler, ok := n.handlers[probe.Body.Type]
 		if !ok {
-			resp := renderError(n.nodeID, message.Src, message.Body["msg_id"].(float64), noderr.NotSupported)
+			resp := WithErrorBody(message, probe.Body.MsgID, noderr.NotSupported)
 			n.send(resp)
 			return
 		}
@@ -142,7 +167,7 @@ func (n *Node) incMsgID() uint64 {
 	return atomic.AddUint64(&n.msgID, 1)
 }
 
-func (n *Node) send(message any) {
+func (n *Node) send(message Message) {
 	// TODO Could be some premarshaled error stub added to send. Just to not skip the error here.
 	resp, _ := json.Marshal(message)
 	resp = append(resp, '\n')
@@ -150,26 +175,51 @@ func (n *Node) send(message any) {
 	n.log.Printf("Sent %#v\n", message)
 }
 
-func parseMessage(input string) (Message, error) {
+func parseMessage(input string) (Message, MsgProbe, error) {
 	var msg Message
 	if err := json.Unmarshal([]byte(input), &msg); err != nil {
-		return Message{}, errors.New("invalid json")
+		return Message{}, MsgProbe{}, errors.New("invalid json")
 	}
 
-	// TODO Legitimately validate message here before pass it further.
+	var msgProbe MsgProbe
+	if err := json.Unmarshal([]byte(input), &msgProbe); err != nil {
+		return Message{}, MsgProbe{}, errors.New("invalid json")
+	}
 
-	return msg, nil
+	return msg, msgProbe, nil
 }
 
-func renderError(from, to string, inReply float64, code noderr.ErrorCode) Message {
+func (m *Message) ExtractBody(body any) (Message, error) {
+	if err := json.Unmarshal(m.Body, body); err != nil {
+		return WithErrorBody(*m, 0, noderr.Malformed), err
+	}
+
+	return Message{}, nil
+}
+
+func WithErrorBody(msg Message, inReply float64, code noderr.ErrorCode) Message {
+	errBody := ErrorBody{
+		Type:      "error",
+		InReplyTo: inReply,
+		Code:      code,
+		Text:      code.String(),
+	}
+
+	body, _ := json.Marshal(errBody)
+
 	return Message{
-		Src:  from,
-		Dest: to,
-		Body: Body{
-			"type":        "error",
-			"in_reply_to": inReply,
-			"code":        code,
-			"text":        code.String(),
-		},
+		Src:  msg.Dest,
+		Dest: msg.Src,
+		Body: body,
+	}
+}
+
+func WithOkBody(msg Message, body any) Message {
+	resp, _ := json.Marshal(body)
+
+	return Message{
+		Src:  msg.Dest,
+		Dest: msg.Src,
+		Body: resp,
 	}
 }
