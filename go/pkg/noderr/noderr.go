@@ -2,6 +2,13 @@ package noderr
 
 type ErrorCode int
 
+type ErrorBody struct {
+	Type      string    `json:"type"`
+	InReplyTo float64   `json:"in_reply_to"` // God only knows why.
+	Code      ErrorCode `json:"code"`
+	Text      string    `json:"text"`
+}
+
 const (
 	Timeout            ErrorCode = 0  // "Timed out"
 	NodeNotFound       ErrorCode = 1  // "Node not found"

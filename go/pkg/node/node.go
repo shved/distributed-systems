@@ -26,13 +26,6 @@ type MsgProbe struct {
 	} `json:"body"`
 }
 
-type ErrorBody struct {
-	Type      string           `json:"type"`
-	InReplyTo float64          `json:"in_reply_to"` // God only knows why.
-	Code      noderr.ErrorCode `json:"code"`
-	Text      string           `json:"text"`
-}
-
 type InitBody struct {
 	Type    string   `json:"type"`
 	MsgID   uint64   `json:"msg_id"`
@@ -198,7 +191,7 @@ func (m *Message) ExtractBody(body any) (Message, error) {
 }
 
 func WithErrorBody(msg Message, inReply float64, code noderr.ErrorCode) Message {
-	errBody := ErrorBody{
+	errBody := noderr.ErrorBody{
 		Type:      "error",
 		InReplyTo: inReply,
 		Code:      code,
