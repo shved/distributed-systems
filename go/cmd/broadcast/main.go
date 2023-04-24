@@ -68,7 +68,7 @@ func main() {
 			return node.WithErrorBody(msg, 0, noderr.Malformed)
 		}
 
-		state.setTopology(body.Topology, n)
+		// state.setTopology(body.Topology, n)
 
 		return node.WithOkBody(msg, TopologyOkBody{
 			Type:      "topology_ok",
@@ -86,7 +86,7 @@ func main() {
 
 		state.appendKnownMessages(body.Message)
 
-		broadcast(n, state.neighbours, body.Message)
+		broadcast(n, msg.Src, body.Message, state.neighbours)
 
 		return node.WithOkBody(msg, BroadcastOkBody{
 			Type:      "broadcast_ok",
@@ -115,7 +115,7 @@ func main() {
 }
 
 // Send a bunch of fire-and-forget type of messages that are just printed to stdout.
-func broadcast(n *node.Node, neighbours []string, message int) {
+func broadcast(n *node.Node, src string, message int, neighbours []string) {
 	body := BroadcastBody{
 		Type:    "broadcast",
 		Message: message,
@@ -129,8 +129,11 @@ func broadcast(n *node.Node, neighbours []string, message int) {
 	}
 
 	for _, neighbour := range neighbours {
-		msg.Dest = neighbour
-		n.Send(msg)
+		if neighbour != src { // Skip send the message back to src.
+			msg.Dest = neighbour
+			n.Send(msg)
+		}
+
 	}
 }
 

@@ -9,9 +9,12 @@ import (
 	"log"
 	"os"
 	"sync/atomic"
+	"time"
 
 	"github.com/shved/distributed-systems/go/pkg/noderr"
 )
+
+var threadPoolTimeout time.Duration = time.Second
 
 type Message struct {
 	Src  string          `json:"src,omitempty"`
@@ -59,7 +62,7 @@ func New(nodeID string, msgID uint64) *Node {
 		nodes:    []string{},
 		log:      log.New(os.Stderr, "", 0),
 		output:   log.New(os.Stdout, "", 0).Writer(),
-		handlers: map[string]HandlerFunc{},
+		handlers: make(map[string]HandlerFunc),
 		pool:     make(chan struct{}, 100),
 	}
 
@@ -101,7 +104,12 @@ func (n *Node) ListenAndServe(input *os.File) {
 }
 
 func (n *Node) SpawnHandler(input string, readErr error) {
-	n.pool <- struct{}{}
+	select {
+	case n.pool <- struct{}{}:
+	case <-time.After(threadPoolTimeout):
+		n.handleTimeout(input)
+		return
+	}
 
 	go func(input string, readErr error) {
 		defer func() {
@@ -111,28 +119,24 @@ func (n *Node) SpawnHandler(input string, readErr error) {
 		n.log.Printf("Received %s", input)
 
 		if readErr != nil {
-			resp := WithErrorBody(Message{}, 0, noderr.Malformed)
-			n.Send(resp)
+			n.Send(WithErrorBody(Message{}, 0, noderr.Malformed))
 			return
 		}
 
 		message, probe, err := parseMessage(input)
 		if err != nil {
-			resp := WithErrorBody(Message{}, 0, noderr.Malformed)
-			n.Send(resp)
+			n.Send(WithErrorBody(Message{}, 0, noderr.Malformed))
 			return
 		}
 
 		if n.nodeID != "" && message.Dest != n.nodeID {
-			resp := WithErrorBody(message, 0, noderr.Malformed)
-			n.Send(resp)
+			n.Send(WithErrorBody(message, 0, noderr.Malformed))
 			return
 		}
 
 		handler, ok := n.handlers[probe.Body.Type]
 		if !ok {
-			resp := WithErrorBody(message, probe.Body.MsgID, noderr.NotSupported)
-			n.Send(resp)
+			n.Send(WithErrorBody(message, probe.Body.MsgID, noderr.NotSupported))
 			return
 		}
 
@@ -162,6 +166,16 @@ func (n *Node) setNodes(nodes []string) {
 
 func (n *Node) incMsgID() uint64 {
 	return atomic.AddUint64(&n.msgID, 1)
+}
+
+func (n *Node) handleTimeout(input string) {
+	message, probe, err := parseMessage(input)
+	if err != nil {
+		n.Send(WithErrorBody(Message{}, 0, noderr.Timeout))
+		return
+	}
+
+	n.Send(WithErrorBody(message, probe.Body.MsgID, noderr.Timeout))
 }
 
 func (n *Node) Send(message Message) {
