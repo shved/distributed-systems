@@ -46,19 +46,21 @@ type ReadOkBody struct {
 }
 
 type extraState struct {
-	mu         sync.Mutex
-	topology   map[string][]string
-	neighbours []string
-	messages   map[int]struct{}
+	mu             sync.Mutex
+	topology       map[string][]string
+	neighbours     []string
+	messagesHashed map[int]struct{}
+	messages       []int
 }
 
 func main() {
 	n := node.New("", 0)
 
 	state := &extraState{
-		neighbours: n.Nodes(),
-		messages:   make(map[int]struct{}),
-		topology:   make(map[string][]string),
+		neighbours:     n.Nodes(),
+		messagesHashed: make(map[int]struct{}),
+		messages:       make([]int, 0),
+		topology:       make(map[string][]string),
 	}
 
 	n.RegisterHandler("topology", func(msg node.Message, msgID uint64) *node.Message {
@@ -155,18 +157,12 @@ func (s *extraState) appendKnownMessages(message int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.messages[message]; !ok {
-		s.messages[message] = struct{}{}
+	if _, ok := s.messagesHashed[message]; !ok {
+		s.messagesHashed[message] = struct{}{}
+		s.messages = append(s.messages, message)
 	}
 }
 
 func (s *extraState) knownMessages() []int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	keys := make([]int, 0, len(s.messages))
-	for k := range s.messages {
-		keys = append(keys, k)
-	}
-
-	return keys
+	return s.messages
 }
