@@ -23,7 +23,7 @@ type EchoOkBody struct {
 func main() {
 	n := node.New("", 0)
 
-	n.RegisterHandler("echo", func(msg node.Message, msgID uint64) node.Message {
+	n.RegisterHandler("echo", func(msg node.Message, msgID uint64) *node.Message {
 		var body EchoBody
 
 		if err := msg.ExtractBody(&body); err != nil {

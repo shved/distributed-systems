@@ -42,7 +42,7 @@ type InitOkBody struct {
 	InReplyTo uint64 `json:"in_reply_to,omitempy"`
 }
 
-type HandlerFunc func(msg Message, msgID uint64) Message
+type HandlerFunc func(msg Message, msgID uint64) *Message
 
 type Node struct {
 	nodeID string
@@ -66,7 +66,7 @@ func New(nodeID string, msgID uint64) *Node {
 		pool:     make(chan struct{}, 100),
 	}
 
-	n.RegisterHandler("init", func(msg Message, msgID uint64) Message {
+	n.RegisterHandler("init", func(msg Message, msgID uint64) *Message {
 		var body InitBody
 
 		if err := msg.ExtractBody(&body); err != nil {
@@ -178,7 +178,11 @@ func (n *Node) handleTimeout(input string) {
 	n.Send(WithErrorBody(message, probe.Body.MsgID, noderr.Timeout))
 }
 
-func (n *Node) Send(message Message) {
+func (n *Node) Send(message *Message) {
+	if message == nil {
+		return
+	}
+
 	// TODO Could be some premarshaled error stub added to send. Just to not skip the error here.
 	resp, _ := json.Marshal(message)
 	resp = append(resp, '\n')
@@ -208,7 +212,7 @@ func (m *Message) ExtractBody(body any) error {
 	return nil
 }
 
-func WithErrorBody(msg Message, inReply float64, code noderr.ErrorCode) Message {
+func WithErrorBody(msg Message, inReply float64, code noderr.ErrorCode) *Message {
 	errBody := noderr.ErrorBody{
 		Type:      "error",
 		InReplyTo: inReply,
@@ -218,17 +222,17 @@ func WithErrorBody(msg Message, inReply float64, code noderr.ErrorCode) Message 
 
 	body, _ := json.Marshal(errBody)
 
-	return Message{
+	return &Message{
 		Src:  msg.Dest,
 		Dest: msg.Src,
 		Body: body,
 	}
 }
 
-func WithOkBody(msg Message, body any) Message {
+func WithOkBody(msg Message, body any) *Message {
 	resp, _ := json.Marshal(body)
 
-	return Message{
+	return &Message{
 		Src:  msg.Dest,
 		Dest: msg.Src,
 		Body: resp,

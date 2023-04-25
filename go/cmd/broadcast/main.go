@@ -61,7 +61,7 @@ func main() {
 		topology:   make(map[string][]string),
 	}
 
-	n.RegisterHandler("topology", func(msg node.Message, msgID uint64) node.Message {
+	n.RegisterHandler("topology", func(msg node.Message, msgID uint64) *node.Message {
 		var body TopologyBody
 
 		if err := msg.ExtractBody(&body); err != nil {
@@ -77,11 +77,15 @@ func main() {
 		})
 	})
 
-	n.RegisterHandler("broadcast", func(msg node.Message, msgID uint64) node.Message {
+	n.RegisterHandler("broadcast", func(msg node.Message, msgID uint64) *node.Message {
 		var body BroadcastBody
 
 		if err := msg.ExtractBody(&body); err != nil {
 			return node.WithErrorBody(msg, 0, noderr.Malformed)
+		}
+
+		if body.MsgID == 0 {
+			return nil
 		}
 
 		state.appendKnownMessages(body.Message)
@@ -95,7 +99,7 @@ func main() {
 		})
 	})
 
-	n.RegisterHandler("read", func(msg node.Message, msgID uint64) node.Message {
+	n.RegisterHandler("read", func(msg node.Message, msgID uint64) *node.Message {
 		var body ReadBody
 
 		if err := msg.ExtractBody(&body); err != nil {
@@ -123,7 +127,7 @@ func broadcast(n *node.Node, src string, message int, neighbours []string) {
 
 	rawBody, _ := json.Marshal(body)
 
-	msg := node.Message{
+	msg := &node.Message{
 		Src:  n.NodeID(),
 		Body: rawBody,
 	}

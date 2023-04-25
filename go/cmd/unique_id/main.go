@@ -23,7 +23,7 @@ type GenerateOkBody struct {
 func main() {
 	n := node.New("", 0)
 
-	n.RegisterHandler("generate", func(msg node.Message, msgID uint64) node.Message {
+	n.RegisterHandler("generate", func(msg node.Message, msgID uint64) *node.Message {
 		var body GenerateBody
 
 		if err := msg.ExtractBody(&body); err != nil {
